@@ -32,6 +32,7 @@ import QRScannerModal from '../components/QRScannerModal';
 export default function VerifyProductPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryId = searchParams.get('id') || '';
+  const queryScenario = searchParams.get('scenario') || '';
 
   const [inputProductId, setInputProductId] = useState(queryId);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -41,18 +42,19 @@ export default function VerifyProductPage() {
 
   // Tamper / Mismatch demonstration simulation
   const [tamperMode, setTamperMode] = useState(false);
-  const [tamperedField, setTamperedField] = useState('batchNumber');
-  const [tamperedValue, setTamperedValue] = useState('COUNTERFEIT-BATCH-99');
+  const tamperedField = 'batchNumber';
+  const tamperedValue = 'COUNTERFEIT-BATCH-99';
 
-  // Perform verification when queryId changes or user submits
+  // Perform verification when queryId or queryScenario changes
   useEffect(() => {
     if (queryId) {
       setInputProductId(queryId);
-      performVerification(queryId, tamperMode);
+      const isTampered = queryScenario === 'tampered' || tamperMode;
+      performVerification(queryId, isTampered);
     } else {
       setVerificationResult(null);
     }
-  }, [queryId]);
+  }, [queryId, queryScenario]);
 
   const performVerification = async (idToVerify, simulateTamper = false) => {
     if (!idToVerify || !idToVerify.trim()) return;
@@ -151,8 +153,8 @@ export default function VerifyProductPage() {
       setVerificationResult({
         verdict: 'REVOKED',
         productId: cleanId,
-        title: 'PRODUCT REVOKED BY MANUFACTURER',
-        subtitle: 'This product identity has been officially revoked or recalled by the authorized manufacturer.',
+        title: 'PRODUCT REVOKED',
+        subtitle: 'This product record has been officially revoked by the authorized manufacturer.',
         explanation: registered.revocationReason || 'This product batch was marked defective or revoked to protect consumers from hazard or counterfeit circulation.',
         registered,
         activeData,
@@ -162,16 +164,18 @@ export default function VerifyProductPage() {
         onChainInfo: onChainVerification,
         onChainData
       });
-    } else if (!hashesMatch) {
-      // CASE C: Record Mismatch (Tampered data)
+    } else if (!hashesMatch || simulateTamper) {
+      // CASE C: Tampered Fingerprint Mismatch
       setVerificationResult({
         verdict: 'MISMATCH',
         productId: cleanId,
-        title: 'RECORD MISMATCH DETECTED',
-        subtitle: 'The supplied product information does not match the registered cryptographic fingerprint.',
-        explanation: 'One or more essential product attributes (such as batch number, manufacturing date, or model) differ from what was certified at the factory. This indicates physical packaging alteration, forged serial labeling, or data tampering.',
+        title: 'FINGERPRINT MISMATCH',
+        subtitle: 'The submitted product information does not match the registered cryptographic fingerprint.',
+        explanation: 'One or more essential product attributes (such as batch number, manufacturing date, or model) differ from what was certified by the manufacturer. This indicates physical packaging alteration, forged serial labeling, or counterfeit tampering.',
         registered,
         activeData,
+        tamperedField: simulateTamper ? tamperedField : null,
+        tamperedValue: simulateTamper ? tamperedValue : null,
         computedHash: computed.hashHex,
         canonicalString: computed.canonicalString,
         hashesMatch: false,
@@ -202,16 +206,21 @@ export default function VerifyProductPage() {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     if (!inputProductId.trim()) return;
-    setSearchParams({ id: inputProductId.trim().toUpperCase() });
+    const clean = inputProductId.trim().toUpperCase();
+    setTamperMode(false);
+    setSearchParams({ id: clean });
+    performVerification(clean, false);
   };
 
   const handleSelectScenario = (id, simulateTamper = false) => {
     setTamperMode(simulateTamper);
     setInputProductId(id);
-    setSearchParams({ id });
     if (simulateTamper) {
-      performVerification(id, true);
+      setSearchParams({ id, scenario: 'tampered' });
+    } else {
+      setSearchParams({ id });
     }
+    performVerification(id, simulateTamper);
   };
 
   const handleCopyHash = (text) => {
@@ -325,16 +334,16 @@ export default function VerifyProductPage() {
               className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 font-semibold transition-colors flex items-center gap-1.5"
             >
               <XCircle className="w-3.5 h-3.5" />
-              <span>Case D: Unregistered Product ID</span>
+              <span>Case D: Unregistered Product ID (SP-2026-9999)</span>
             </button>
 
             <button
               type="button"
-              onClick={() => handleSelectScenario('INVALID-ID-MALFORMED', false)}
-              className="px-3 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 font-semibold transition-colors flex items-center gap-1.5"
+              onClick={() => handleSelectScenario('INVALID-123', false)}
+              className="px-3 py-1.5 rounded-xl bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 font-semibold transition-colors flex items-center gap-1.5"
             >
               <AlertCircle className="w-3.5 h-3.5" />
-              <span>Case E: Invalid Format (Schema Check)</span>
+              <span>Case E: Invalid Format (e.g. INVALID-123)</span>
             </button>
           </div>
         </div>
@@ -350,12 +359,15 @@ export default function VerifyProductPage() {
               ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-950 dark:text-emerald-100'
               : verificationResult.verdict === 'REVOKED'
               ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100'
+              : verificationResult.verdict === 'INVALID_FORMAT'
+              ? 'bg-orange-50/80 dark:bg-orange-950/40 border-orange-300 dark:border-orange-800 text-orange-950 dark:text-orange-100'
               : 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-950 dark:text-rose-100'
           }`}>
             <div className="flex items-start gap-4">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-white ${
                 verificationResult.verdict === 'AUTHENTIC' ? 'bg-emerald-600' :
-                verificationResult.verdict === 'REVOKED' ? 'bg-amber-600' : 'bg-rose-600'
+                verificationResult.verdict === 'REVOKED' ? 'bg-amber-600' : 
+                verificationResult.verdict === 'INVALID_FORMAT' ? 'bg-orange-500' : 'bg-rose-600'
               }`}>
                 {verificationResult.verdict === 'AUTHENTIC' && <ShieldCheck className="w-7 h-7 stroke-[2.5]" />}
                 {verificationResult.verdict === 'REVOKED' && <Ban className="w-7 h-7 stroke-[2.5]" />}
@@ -388,6 +400,128 @@ export default function VerifyProductPage() {
               </div>
             </div>
           </div>
+
+          {/* CASE B SPECIFIC: REVOCATION CALLOUT */}
+          {verificationResult.verdict === 'REVOKED' && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-3">
+              <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200 font-extrabold text-sm uppercase tracking-wide">
+                <Ban className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Official Manufacturer Revocation Notice</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Revoked Product ID:</span>
+                  <span className="font-mono font-bold text-amber-700 dark:text-amber-400 text-sm">{verificationResult.productId}</span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Revocation Status:</span>
+                  <span className="font-bold text-amber-600 dark:text-amber-400">REVOKED ON-CHAIN (Not Authentic)</span>
+                </div>
+                <div className="pt-1">
+                  <span className="text-slate-500 block mb-1">Manufacturer Stated Reason:</span>
+                  <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 font-medium">
+                    {verificationResult.explanation || verificationResult.registered?.revocationReason}
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                <strong>Safety Advisory:</strong> This product has been marked revoked on the distributed ledger. It must not be sold, distributed, or accepted as an authentic unit.
+              </p>
+            </div>
+          )}
+
+          {/* CASE C SPECIFIC: TAMPER / ATTRIBUTE ALTERATION COMPARISON */}
+          {verificationResult.verdict === 'MISMATCH' && (
+            <div className="p-5 sm:p-6 rounded-3xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 space-y-4">
+              <div className="flex items-center gap-2 text-rose-800 dark:text-rose-200 font-extrabold text-sm uppercase tracking-wide">
+                <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                <span>Detected Attribute Alteration (Packaging vs. Ledger)</span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Registered Batch (On Ledger)</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                    {verificationResult.registered?.batchNumber || 'TN-2026-08'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Official factory batch number certified at minting</span>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 space-y-1.5">
+                  <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400 block">Submitted Packaging Batch</span>
+                  <span className="font-mono font-bold text-rose-600 dark:text-rose-400 text-sm">
+                    {verificationResult.activeData?.batchNumber || 'COUNTERFEIT-BATCH-99'}
+                  </span>
+                  <span className="text-[10px] text-rose-500 block">Altered value on packaging causing SHA-256 mismatch</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/60 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold">
+                  <span className="text-slate-500">Digest Comparison Status:</span>
+                  <span className="text-rose-600 dark:text-rose-400 font-mono">MISMATCH (0% Cryptographic Match)</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  <strong>Academic Demonstration Notice:</strong> The original blockchain record remains completely immutable and unaltered. 
+                  This scenario demonstrates client-side cryptographic verification: even a 1-character difference in product attributes generates an entirely different SHA-256 digest, immediately exposing forged labeling.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* CASE D SPECIFIC: UNREGISTERED PRODUCT LOOKUP SUMMARY */}
+          {verificationResult.verdict === 'UNREGISTERED' && (
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold text-sm">
+                <XCircle className="w-5 h-5 shrink-0" />
+                <span>Ledger Search Summary</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Queried Product ID:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">{verificationResult.productId}</span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Ledger Record Status:</span>
+                  <span className="font-bold text-rose-600 dark:text-rose-400">UNREGISTERED / NOT FOUND</span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Smart Contract Anchor:</span>
+                  <span className="font-mono text-slate-400">No cryptographic fingerprint exists for this ID</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                This Product ID does not exist in the SupplyProof decentralized registry. No product specifications can be verified because no certified manufacturer has ever registered this identifier.
+              </p>
+            </div>
+          )}
+
+          {/* CASE E SPECIFIC: SCHEMA VALIDATION ERROR SUMMARY */}
+          {verificationResult.verdict === 'INVALID_FORMAT' && (
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 font-bold text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span>Schema Validation Error</span>
+              </div>
+              <div className="p-4 rounded-2xl bg-orange-50/60 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/50 space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Entered Value:</span>
+                  <span className="font-mono font-bold text-orange-700 dark:text-orange-400 text-sm">{verificationResult.productId}</span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Expected Canonical Schema:</span>
+                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">SP-YYYY-NNNN (e.g. SP-2026-0001)</span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <span className="text-slate-500">Blockchain Network RPC:</span>
+                  <span className="font-semibold text-slate-600 dark:text-slate-400">SKIPPED (Validation rejected before network call)</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                The identifier does not follow the required SupplyProof product code standard. Format validation caught the error instantly without making an unnecessary blockchain request.
+              </p>
+            </div>
+          )}
 
           {/* 2. REGISTERED DETAILS & CRYPTOGRAPHIC PROOF (When record exists) */}
           {verificationResult.registered && (
@@ -441,11 +575,17 @@ export default function VerifyProductPage() {
                     <span>Cryptographic Fingerprint Audit (SHA-256)</span>
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                    verificationResult.hashesMatch 
-                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' 
-                       : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                    verificationResult.verdict === 'REVOKED'
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300'
+                      : verificationResult.hashesMatch 
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' 
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
                   }`}>
-                    {verificationResult.hashesMatch ? 'Exact Match (100%)' : 'Digest Mismatch'}
+                    {verificationResult.verdict === 'REVOKED'
+                      ? 'Matches Revoked Ledger Record'
+                      : verificationResult.hashesMatch 
+                      ? 'Exact Match (100%)' 
+                      : 'Digest Mismatch'}
                   </span>
                 </div>
 
@@ -471,7 +611,11 @@ export default function VerifyProductPage() {
                     <span className="text-slate-400 text-[10px] font-bold uppercase block">Recomputed Fingerprint from Supplied Item:</span>
                     <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 mt-1">
                       <code className={`text-xs font-mono break-all select-all ${
-                        verificationResult.hashesMatch ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400 font-bold'
+                        verificationResult.verdict === 'REVOKED'
+                          ? 'text-amber-600 dark:text-amber-400 font-bold'
+                          : verificationResult.hashesMatch 
+                          ? 'text-emerald-600 dark:text-emerald-400' 
+                          : 'text-rose-600 dark:text-rose-400 font-bold'
                       }`}>
                         {verificationResult.computedHash}
                       </code>
