@@ -236,7 +236,7 @@ If a counterfeit packager alters even a single character in the batch number (e.
 ## 15. Project Structure
 
 ```text
-bikechain/                           # Project Root
+supplyproof/                         # Project Root
 ├── blockchain/                      # Solidity Smart Contracts & Hardhat Suite
 │   ├── contracts/
 │   │   └── SupplyProof.sol          # Core smart contract with RBAC & verification
@@ -305,8 +305,8 @@ bikechain/                           # Project Root
 
 ```bash
 # Clone the repository
-git clone https://github.com/Sahil4507/Bikechain.git
-cd Bikechain
+git clone https://github.com/Sahil4507/SupplyProof.git
+cd SupplyProof
 
 # Install frontend dependencies
 cd frontend

@@ -22,7 +22,7 @@ import {
 import { generateUniqueProductId, generateProductFingerprint, getCanonicalProductString } from '../utils/crypto';
 import { registerNewProduct, getProductById } from '../data/mockProducts';
 import { isWalletAvailable, registerProductOnChain, connectWallet } from '../services/blockchain';
-import { generateQRCodeSVG } from '../utils/qr';
+import ProductQRCode from '../components/ProductQRCode';
 
 export default function RegisterProductPage() {
   const navigate = useNavigate();
@@ -301,17 +301,8 @@ export default function RegisterProductPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 items-center">
             
             {/* Rendered Pure SVG QR Code */}
-            <div className="flex flex-col items-center justify-center space-y-2 text-center">
-              <div 
-                className="w-40 h-40 p-2 rounded-2xl bg-white shadow-xs border border-slate-200 flex items-center justify-center"
-                dangerouslySetInnerHTML={{ 
-                  __html: generateQRCodeSVG(
-                    `${window.location.origin}/verify?id=${registeredSuccess.productId}`,
-                    { size: 144 }
-                  ) 
-                }}
-              />
-              <span className="text-[11px] font-mono text-slate-500">Scan to Verify</span>
+            <div className="flex justify-center">
+              <ProductQRCode productId={registeredSuccess.productId} size={144} />
             </div>
 
             {/* Passport Data */}

@@ -265,6 +265,9 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
               <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-square max-h-60 flex items-center justify-center border border-slate-200 dark:border-slate-800">
                 <video
                   ref={videoRef}
+                  playsInline
+                  autoPlay
+                  muted
                   className="w-full h-full object-cover"
                 />
                 

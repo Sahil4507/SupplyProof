@@ -26,7 +26,6 @@ import {
 import { getProductById } from '../data/mockProducts';
 import { generateProductFingerprint, isValidProductId, extractProductId } from '../utils/crypto';
 import { verifyProductOnChain, getProductOnChain } from '../services/blockchain';
-import { generateQRCodeSVG } from '../utils/qr';
 import StatusBadge from '../components/StatusBadge';
 import QRScannerModal from '../components/QRScannerModal';
 

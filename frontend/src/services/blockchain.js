@@ -12,7 +12,16 @@
 
 import { ethers } from 'ethers';
 
-// Default Hardhat local RPC URL
+// Default Hardhat local RPC URL resolver
+export function getRpcUrl() {
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:8545`;
+    }
+  }
+  return "http://127.0.0.1:8545";
+}
 export const LOCAL_RPC_URL = "http://127.0.0.1:8545";
 
 // Fallback contract address if artifact cannot be loaded dynamically
@@ -47,7 +56,7 @@ export function isWalletAvailable() {
  */
 export async function isLocalNodeReachable() {
   try {
-    const provider = new ethers.JsonRpcProvider(LOCAL_RPC_URL);
+    const provider = new ethers.JsonRpcProvider(getRpcUrl());
     await provider.getBlockNumber();
     return true;
   } catch {
@@ -75,10 +84,10 @@ export async function getReadOnlyContract() {
       await provider.getBlockNumber();
     } catch {
       // Browser provider failed or unconnected, fallback to local RPC
-      provider = new ethers.JsonRpcProvider(LOCAL_RPC_URL);
+      provider = new ethers.JsonRpcProvider(getRpcUrl());
     }
   } else {
-    provider = new ethers.JsonRpcProvider(LOCAL_RPC_URL);
+    provider = new ethers.JsonRpcProvider(getRpcUrl());
   }
 
   return new ethers.Contract(contractAddress, artifact.abi, provider);
