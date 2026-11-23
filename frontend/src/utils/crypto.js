@@ -35,7 +35,15 @@ export async function computeSHA256(text) {
   try {
     const encoder = new TextEncoder();
     const data = encoder.encode(text);
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+    const subtleCrypto = (typeof window !== 'undefined' && window.crypto?.subtle) 
+      ? window.crypto.subtle 
+      : (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle ? globalThis.crypto.subtle : null);
+
+    if (!subtleCrypto) {
+      throw new Error("Web Cryptography API (subtle.digest) is unavailable in this environment.");
+    }
+
+    const hashBuffer = await subtleCrypto.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
   } catch (error) {

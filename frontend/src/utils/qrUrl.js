@@ -33,15 +33,16 @@ export function getQrBaseUrl() {
     }
   }
 
-  // 2. Explicit Environment Variables
-  const envUrl = import.meta.env.VITE_APP_URL || import.meta.env.VITE_PUBLIC_URL;
+  // 2. Explicit Environment Variables (safely support both Vite browser client & Node.js environments)
+  const env = (typeof import.meta !== 'undefined' && import.meta?.env) ? import.meta.env : (typeof process !== 'undefined' && process?.env ? process.env : {});
+  const envUrl = env.VITE_APP_URL || env.VITE_PUBLIC_URL;
   if (envUrl && envUrl.trim()) {
     return envUrl.trim().replace(/\/+$/, '');
   }
 
   // Check for Vercel deployment variable
-  if (import.meta.env.VITE_VERCEL_URL) {
-    return `https://${import.meta.env.VITE_VERCEL_URL}`.replace(/\/+$/, '');
+  if (env.VITE_VERCEL_URL) {
+    return `https://${env.VITE_VERCEL_URL}`.replace(/\/+$/, '');
   }
 
   // 3. Browser runtime inspection
