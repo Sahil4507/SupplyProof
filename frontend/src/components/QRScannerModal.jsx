@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Camera, Upload, AlertCircle, CheckCircle2, RefreshCw, QrCode } from 'lucide-react';
+import { X, Camera, Upload, AlertCircle, CheckCircle2, RefreshCw, QrCode, ShieldAlert, ExternalLink, Smartphone } from 'lucide-react';
+import jsQR from 'jsqr';
 import { extractProductId, isValidProductId } from '../utils/crypto';
 
 export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
   if (!isOpen) return null;
 
   const [activeTab, setActiveTab] = useState('camera'); // 'camera' or 'upload'
-  const [cameraError, setCameraError] = useState('');
+  const [cameraError, setCameraError] = useState(null); // { type: string, title: string, message: string, suggestion?: string }
   const [cameraActive, setCameraActive] = useState(false);
   const [manualInput, setManualInput] = useState('');
   const [scanFeedback, setScanFeedback] = useState(null); // { type: 'success' | 'error', message: string }
@@ -14,8 +15,9 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
+  const canvasRef = useRef(null);
 
-  // Initialize camera when tab is 'camera'
+  // Initialize camera when active tab is 'camera'
   useEffect(() => {
     if (activeTab === 'camera') {
       startCamera();
@@ -28,69 +30,167 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
     };
   }, [activeTab]);
 
+  // Clean up if modal is closed
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
   const stopCamera = () => {
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      try {
+        streamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      } catch (e) {
+        console.warn("Track stop error:", e);
+      }
       streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setCameraActive(false);
   };
 
   const startCamera = async () => {
-    setCameraError('');
+    setCameraError(null);
     setScanFeedback(null);
     stopCamera();
 
-    if (!navigator?.mediaDevices?.getUserMedia) {
-      setCameraError("Camera access is not supported by your browser. Please use the image upload option or enter the ID manually.");
+    // 1. Check for Insecure Context (HTTP on non-localhost)
+    const isSecure = typeof window !== 'undefined' && (
+      window.isSecureContext ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+    );
+
+    if (!isSecure) {
+      setCameraError({
+        type: 'INSECURE_CONTEXT',
+        title: 'Insecure Connection (HTTP)',
+        message: 'Modern mobile browsers strictly require HTTPS to access camera hardware. Connecting via plain HTTP over LAN disables camera APIs.',
+        suggestion: 'To scan on your phone, test on the deployed HTTPS website (e.g. Vercel), or use the "Upload Image" tab below.'
+      });
       return;
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    // 2. Check Browser Support
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError({
+        type: 'NOT_SUPPORTED',
+        title: 'Camera Not Supported',
+        message: 'Your browser does not support the WebRTC MediaDevices API.',
+        suggestion: 'Please update your browser, or use the "Upload Image" or "Paste URL" options below.'
       });
+      return;
+    }
+
+    // 3. Request Media Stream
+    try {
+      let stream;
+      try {
+        // Preferred: rear environment camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      } catch (constraintErr) {
+        // Fallback for laptops/webcams where facingMode 'environment' throws OverconstrainedError
+        console.warn("Retrying with generic video constraints:", constraintErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
+
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute("playsinline", true);
+        videoRef.current.playsInline = true;
+        videoRef.current.muted = true;
+        videoRef.current.autoplay = true;
+
         await videoRef.current.play();
         setCameraActive(true);
 
-        // Check if BarcodeDetector API is natively supported
-        if ('BarcodeDetector' in window) {
-          const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
-          scanIntervalRef.current = setInterval(async () => {
-            if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+        // Offscreen canvas for frame extraction
+        if (!canvasRef.current) {
+          canvasRef.current = document.createElement('canvas');
+        }
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // Continuous real-time frame scanning loop
+        scanIntervalRef.current = setInterval(() => {
+          if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+            const video = videoRef.current;
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+
+            if (w > 0 && h > 0) {
+              canvas.width = w;
+              canvas.height = h;
+              ctx.drawImage(video, 0, 0, w, h);
+              const imageData = ctx.getImageData(0, 0, w, h);
+
               try {
-                const barcodes = await barcodeDetector.detect(videoRef.current);
-                if (barcodes && barcodes.length > 0) {
-                  const rawValue = barcodes[0].rawValue;
-                  handleDetectedString(rawValue);
+                const code = jsQR(imageData.data, w, h, {
+                  inversionAttempts: "dontInvert"
+                });
+
+                if (code && code.data) {
+                  handleDetectedString(code.data);
                 }
-              } catch (e) {
-                // frame detection failed, retry next tick
+              } catch (decodeErr) {
+                // Ignore transient frame decode failure
               }
             }
-          }, 400);
-        } else {
-          // BarcodeDetector not natively available in this browser
-          // Fall back gracefully to manual input or file upload
-        }
+          }
+        }, 200);
       }
     } catch (err) {
       console.warn("Camera access error:", err);
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError("Camera permission denied. Please allow camera permissions in your browser address bar, or use the image upload tab.");
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        setCameraError("No camera device was detected on your system. Please upload a QR image or enter the Product ID.");
+      const name = err.name || '';
+
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setCameraError({
+          type: 'PERMISSION_DENIED',
+          title: 'Camera Permission Denied',
+          message: 'Your browser has blocked camera permissions for this site.',
+          suggestion: 'Tap the lock/settings icon in your browser address bar, set Camera to "Allow", and click Retry Camera below.'
+        });
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        setCameraError({
+          type: 'NO_DEVICE',
+          title: 'No Camera Detected',
+          message: 'No video capture hardware was found on this system.',
+          suggestion: 'Please use the "Upload Image" tab or enter the Product ID manually.'
+        });
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        setCameraError({
+          type: 'IN_USE',
+          title: 'Camera Already in Use',
+          message: 'Another application or browser tab is currently using the camera hardware.',
+          suggestion: 'Please close any other camera apps and click Retry Camera below.'
+        });
       } else {
-        setCameraError(`Camera error: ${err.message || 'Unable to start camera stream'}.`);
+        setCameraError({
+          type: 'UNKNOWN',
+          title: 'Camera Initialization Error',
+          message: err.message || 'Unable to access video stream.',
+          suggestion: 'Please try clicking Retry Camera or use the "Upload Image" tab.'
+        });
       }
     }
   };
@@ -108,51 +208,58 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
         stopCamera();
         onScanSuccess(extractedId);
         onClose();
-      }, 700);
+      }, 500);
     } else {
       setScanFeedback({
         type: 'error',
-        message: `Invalid QR Code: The scanned code is not a valid SupplyProof product passport.`
+        message: `Invalid QR Code: The scanned QR code is not a valid SupplyProof product passport.`
       });
     }
   };
 
-  // Handle image file selection
+  // Handle image file selection (decodes directly via jsQR)
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setScanFeedback(null);
 
-    // Try reading with BarcodeDetector
-    if ('BarcodeDetector' in window) {
-      try {
-        const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
-        const img = new Image();
-        img.src = URL.createObjectURL(file);
-        await new Promise((resolve) => { img.onload = resolve; });
+    try {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.src = objectUrl;
 
-        const barcodes = await barcodeDetector.detect(img);
-        if (barcodes && barcodes.length > 0) {
-          handleDetectedString(barcodes[0].rawValue);
-          return;
-        } else {
-          setScanFeedback({
-            type: 'error',
-            message: 'No QR code was detected in the uploaded image. Please ensure the image is clear and well-lit.'
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn("BarcodeDetector image decode error:", err);
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+      URL.revokeObjectURL(objectUrl);
+
+      if (code && code.data) {
+        handleDetectedString(code.data);
+      } else {
+        setScanFeedback({
+          type: 'error',
+          message: 'No QR code was detected in the uploaded image. Please ensure the image is clear and well-lit.'
+        });
       }
+    } catch (err) {
+      console.warn("Image decode error:", err);
+      setScanFeedback({
+        type: 'error',
+        message: 'Failed to process image. Please enter the Product ID below.'
+      });
     }
-
-    // Fallback: If BarcodeDetector is not supported, suggest manual entry
-    setScanFeedback({
-      type: 'error',
-      message: 'Client-side QR image decoding requires BarcodeDetector API. Please enter or paste the Product ID below.'
-    });
   };
 
   const handleManualSubmit = (e) => {
@@ -246,20 +353,34 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
         {activeTab === 'camera' && (
           <div className="space-y-3">
             {cameraError ? (
-              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300 space-y-2">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>Camera Unavailable</span>
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 space-y-2.5">
+                <div className="flex items-center gap-1.5 font-bold text-amber-950 dark:text-amber-100">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{cameraError.title}</span>
                 </div>
-                <p>{cameraError}</p>
-                <button
-                  type="button"
-                  onClick={startCamera}
-                  className="px-3 py-1.5 rounded-lg bg-amber-200 dark:bg-amber-900/60 font-semibold text-amber-900 dark:text-amber-100 text-[11px] inline-flex items-center gap-1"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Retry Camera</span>
-                </button>
+                <p className="leading-relaxed opacity-90">{cameraError.message}</p>
+                {cameraError.suggestion && (
+                  <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 bg-white/60 dark:bg-slate-900/60 p-2 rounded-xl border border-amber-200 dark:border-amber-900/40">
+                    💡 {cameraError.suggestion}
+                  </p>
+                )}
+                <div className="pt-1 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs inline-flex items-center gap-1.5 transition-colors shadow-xs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry Camera</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('upload')}
+                    className="px-3 py-1.5 rounded-xl border border-amber-300 dark:border-amber-800 font-semibold text-amber-900 dark:text-amber-100 text-xs"
+                  >
+                    Use Image Upload
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-square max-h-60 flex items-center justify-center border border-slate-200 dark:border-slate-800">
@@ -290,7 +411,7 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
           </div>
         )}
 
-        {/* Upload Image View */}
+        {/* Upload Image View (Decodes directly via jsQR) */}
         {activeTab === 'upload' && (
           <div className="space-y-3">
             <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors bg-slate-50/50 dark:bg-slate-950/50">
@@ -298,7 +419,7 @@ export default function QRScannerModal({ isOpen, onClose, onScanSuccess }) {
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
                 Click to browse or drop QR image
               </span>
-              <span className="text-[10px] text-slate-400">PNG, JPG, WebP or SVG</span>
+              <span className="text-[10px] text-slate-400">Decodes PNG, JPG, WebP directly</span>
               <input
                 type="file"
                 accept="image/*"
