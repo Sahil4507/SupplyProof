@@ -19,7 +19,7 @@ import {
 import { getProductById, revokeProductRecord } from '../data/mockProducts';
 import { generateQRCodeSVG } from '../utils/qr';
 import { truncateHash, truncateAddress } from '../utils/formatters';
-import { isWalletAvailable, revokeProductOnChain } from '../services/blockchain';
+import { isWalletAvailable, revokeProductOnChain, getProductOnChain } from '../services/blockchain';
 import StatusBadge from '../components/StatusBadge';
 
 export default function ProductDetailsPage() {
@@ -29,6 +29,7 @@ export default function ProductDetailsPage() {
   
   const [product, setProduct] = useState(null);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   // Revocation modal state
   const [showRevokeModal, setShowRevokeModal] = useState(false);
@@ -37,9 +38,58 @@ export default function ProductDetailsPage() {
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    setLoading(true);
     const found = getProductById(activeId);
-    setProduct(found ? { ...found } : null);
+    if (found) {
+      setProduct({ ...found });
+      setLoading(false);
+    } else {
+      // Query on-chain smart contract
+      getProductOnChain(activeId).then(res => {
+        if (res.success && res.product && res.product.productName) {
+          setProduct({
+            productId: res.product.productId,
+            productName: res.product.productName,
+            category: res.product.category,
+            manufacturerName: res.product.manufacturerName,
+            manufacturerId: 'ON-CHAIN-RECORD',
+            batchNumber: res.product.batchNumber,
+            manufacturingDate: new Date(res.product.registeredAt).toISOString().substring(0, 10),
+            productHash: res.product.fingerprintHash,
+            status: res.product.status === 1 ? 'REVOKED' : 'AUTHENTIC',
+            revocationReason: res.product.revocationReason,
+            registeredBy: res.product.registeredBy,
+            isLiveOnChain: true,
+            events: [
+              {
+                id: 'ev-1',
+                title: 'Factory Minting & Fingerprint Anchor',
+                eventType: 'PRODUCT_REGISTERED',
+                actor: res.product.registeredBy,
+                date: new Date(res.product.registeredAt).toISOString().substring(0, 10),
+                details: 'Anchored directly to SupplyProof.sol on EVM distributed ledger.'
+              }
+            ]
+          });
+        } else {
+          setProduct(null);
+        }
+      }).catch(() => {
+        setProduct(null);
+      }).finally(() => {
+        setLoading(false);
+      });
+    }
   }, [activeId]);
+
+  if (loading) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-20 text-center space-y-3">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">Querying distributed ledger & product registry...</p>
+      </div>
+    );
+  }
 
   if (!product) {
     return (

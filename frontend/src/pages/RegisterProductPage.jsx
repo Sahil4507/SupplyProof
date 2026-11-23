@@ -14,15 +14,21 @@ import {
   Hash,
   Calendar,
   Layers,
-  Sparkles
+  Sparkles,
+  Cpu,
+  FlaskConical,
+  Info
 } from 'lucide-react';
 import { generateUniqueProductId, generateProductFingerprint, getCanonicalProductString } from '../utils/crypto';
 import { registerNewProduct, getProductById } from '../data/mockProducts';
-import { isWalletAvailable, registerProductOnChain } from '../services/blockchain';
+import { isWalletAvailable, registerProductOnChain, connectWallet } from '../services/blockchain';
 import { generateQRCodeSVG } from '../utils/qr';
 
 export default function RegisterProductPage() {
   const navigate = useNavigate();
+
+  // Mode Selection: 'blockchain' or 'demo'
+  const [executionMode, setExecutionMode] = useState(isWalletAvailable() ? 'blockchain' : 'demo');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -104,44 +110,55 @@ export default function RegisterProductPage() {
       return;
     }
 
-    // Check duplicate in local store
-    if (getProductById(formData.productId)) {
-      setErrorMsg(`Product ID '${formData.productId}' already exists. Please generate a unique ID.`);
+    // Check duplicate in local demo store
+    if (executionMode === 'demo' && getProductById(formData.productId)) {
+      setErrorMsg(`Product ID '${formData.productId}' already exists in demonstration registry. Please generate a unique ID.`);
       return;
     }
 
     setSubmitting(true);
 
     try {
-      // Check if wallet is available and connected for live on-chain registration
-      if (isWalletAvailable()) {
-        try {
-          const txResult = await registerProductOnChain(formData, bytes32Hash);
-          const saved = registerNewProduct({
-            ...formData,
-            productHash,
-            txHash: txResult.txHash,
-            blockNumber: txResult.blockNumber
-          });
-          setIsDemoMode(false);
-          setRegisteredSuccess(saved);
-          return;
-        } catch (chainErr) {
-          console.warn("On-chain submission fallback to demo mode:", chainErr);
-          // If user cancelled or node not available, fall back to demonstration registry
+      if (executionMode === 'blockchain') {
+        // Direct EVM Smart Contract Transaction
+        if (!isWalletAvailable()) {
+          throw new Error("No Web3 wallet (MetaMask) detected. Please install MetaMask or switch to 'Demonstration Mode'.");
         }
-      }
 
-      // Demonstration registry fallback
-      const saved = registerNewProduct({
-        ...formData,
-        productHash,
-        registeredBy: "0x71C8364237FDb33321558913F2459bAb83eE82A1"
-      });
-      setIsDemoMode(true);
-      setRegisteredSuccess(saved);
+        const txResult = await registerProductOnChain(formData, bytes32Hash);
+        
+        // Save to local cache with genuine blockchain transaction receipt
+        const saved = registerNewProduct({
+          ...formData,
+          productHash,
+          txHash: txResult.txHash,
+          blockNumber: txResult.blockNumber,
+          gasUsed: txResult.gasUsed,
+          isLiveOnChain: true
+        });
+
+        setIsDemoMode(false);
+        setRegisteredSuccess({
+          ...saved,
+          txHash: txResult.txHash,
+          blockNumber: txResult.blockNumber
+        });
+      } else {
+        // Explicit Demonstration Mode
+        const saved = registerNewProduct({
+          ...formData,
+          productHash,
+          registeredBy: "0x71C8364237FDb33321558913F2459bAb83eE82A1",
+          isDemoMode: true
+        });
+
+        setIsDemoMode(true);
+        setRegisteredSuccess(saved);
+      }
     } catch (err) {
-      setErrorMsg(err.message || 'Product registration failed.');
+      console.error("Registration error:", err);
+      // Strictly report the real error without fake fallbacks
+      setErrorMsg(err.message || "Registration failed on blockchain.");
     } finally {
       setSubmitting(false);
     }
@@ -176,6 +193,63 @@ export default function RegisterProductPage() {
         </button>
       </div>
 
+      {/* Registration Mode Selector */}
+      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+              Execution Target
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-400 font-mono">Academic Honesty Layer</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => { setExecutionMode('blockchain'); setErrorMsg(''); }}
+            className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
+              executionMode === 'blockchain'
+                ? 'bg-blue-50/80 dark:bg-blue-950/50 border-blue-500 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/20'
+                : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+            }`}
+          >
+            <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${executionMode === 'blockchain' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400'}`} />
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold flex items-center gap-1.5">
+                <span>EVM Smart Contract</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded font-mono">Live</span>
+              </div>
+              <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                Signs real transaction via MetaMask to SupplyProof.sol. Rejections and revert errors are strictly surfaced.
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setExecutionMode('demo'); setErrorMsg(''); }}
+            className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
+              executionMode === 'demo'
+                ? 'bg-amber-50/80 dark:bg-amber-950/50 border-amber-500 text-amber-900 dark:text-amber-100 ring-2 ring-amber-500/20'
+                : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+            }`}
+          >
+            <FlaskConical className={`w-5 h-5 shrink-0 mt-0.5 ${executionMode === 'demo' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold flex items-center gap-1.5">
+                <span>Demonstration Mode</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 rounded font-mono">Offline / Viva</span>
+              </div>
+              <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                Records product fingerprint in local session state. For offline demo when node or wallet is disconnected.
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* Registration Success View */}
       {registeredSuccess ? (
         <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 animate-fadeIn">
@@ -188,12 +262,40 @@ export default function RegisterProductPage() {
                 Product Identity Successfully Registered
               </h2>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                {isDemoMode 
-                  ? "Demonstration Mode — Anchored to Session Registry" 
-                  : "Blockchain Confirmed — Recorded via SupplyProof.sol"}
+                {registeredSuccess.txHash ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                    Live On-Chain Receipt Confirmed — Block #{registeredSuccess.blockNumber}
+                  </span>
+                ) : (
+                  <span>Demonstration Mode — Anchored to Session Registry</span>
+                )}
               </span>
             </div>
           </div>
+
+          {/* Real Blockchain Transaction Receipt (if on-chain) */}
+          {registeredSuccess.txHash && (
+            <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2 text-xs">
+              <div className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4" />
+                <span>On-Chain EVM Transaction Receipt</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono">
+                <div>
+                  <span className="text-slate-400 block">Transaction Hash:</span>
+                  <span className="text-slate-800 dark:text-slate-200 break-all select-all font-bold">
+                    {registeredSuccess.txHash}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Block Height:</span>
+                  <span className="text-slate-800 dark:text-slate-200 font-bold">
+                    #{registeredSuccess.blockNumber}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* QR Code & Identity Summary */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 items-center">
@@ -291,9 +393,12 @@ export default function RegisterProductPage() {
         <form onSubmit={handleSubmit} className="space-y-8">
           
           {errorMsg && (
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2 text-xs font-semibold text-rose-700 dark:text-rose-300">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
+            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-start gap-2.5 text-xs font-semibold text-rose-700 dark:text-rose-300">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <span className="font-bold block">Registration Error:</span>
+                <span className="font-normal">{errorMsg}</span>
+              </div>
             </div>
           )}
 
@@ -425,7 +530,7 @@ export default function RegisterProductPage() {
             </div>
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              As you fill out the product fields, SupplyProof deterministically normalizes them into a canonical string and calculates its exact SHA-256 hash. This fingerprint is what gets recorded on the blockchain.
+              As you fill out the product fields, SupplyProof deterministically normalizes them into a canonical string and calculates its exact SHA-256 hash. This fingerprint is what gets anchored on the blockchain.
             </p>
 
             <div className="space-y-2 text-xs">
@@ -446,23 +551,33 @@ export default function RegisterProductPage() {
           </div>
 
           {/* Submit Action */}
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
             <div className="text-xs text-slate-500">
               <span className="font-semibold text-slate-700 dark:text-slate-300">Access Control: </span>
-              Restricted to authorized <code className="font-mono text-blue-600">MANUFACTURER_ROLE</code>.
+              {executionMode === 'blockchain' ? (
+                <span>Requires connected wallet holding <code className="font-mono text-blue-600">MANUFACTURER_ROLE</code>.</span>
+              ) : (
+                <span>Demonstration mode enabled for offline testing and viva walkthrough.</span>
+              )}
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-extrabold text-xs shadow-sm transition-all active:scale-95 flex items-center gap-2"
+              className={`px-6 py-3 rounded-2xl text-white font-extrabold text-xs shadow-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                executionMode === 'blockchain'
+                  ? 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
+                  : 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400'
+              }`}
             >
               {submitting ? (
-                <span>Submitting to Ledger...</span>
+                <span>Executing Registration...</span>
               ) : (
                 <>
                   <PlusCircle className="w-4 h-4" />
-                  <span>Register & Anchor on Blockchain</span>
+                  <span>
+                    {executionMode === 'blockchain' ? 'Sign & Anchor to Smart Contract' : 'Save to Demo Registry'}
+                  </span>
                 </>
               )}
             </button>

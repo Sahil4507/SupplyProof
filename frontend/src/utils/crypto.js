@@ -88,3 +88,49 @@ export function generateUniqueProductId() {
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   return `SP-${year}-${randomSuffix}`;
 }
+
+/**
+ * Validate Product ID format.
+ * Canonical format is SP-YYYY-NNNN (e.g., SP-2026-0001) or standard alphanumeric serial.
+ * @param {string} id 
+ * @returns {boolean}
+ */
+export function isValidProductId(id) {
+  if (!id || typeof id !== 'string') return false;
+  const clean = id.trim().toUpperCase();
+  // Validates SP-YYYY-XXXX (where YYYY is 4 digits and XXXX is 4-10 alphanumeric characters)
+  return /^SP-\d{4}-[A-Z0-9_-]{3,12}$/i.test(clean);
+}
+
+/**
+ * Extract canonical Product ID from a raw URL or text string.
+ * Supports:
+ * - Direct IDs: "SP-2026-0001"
+ * - Full verification URLs: "https://.../verify?id=SP-2026-0001"
+ * @param {string} text 
+ * @returns {string|null} Canonical Product ID if detected, otherwise null
+ */
+export function extractProductId(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+
+  // Try parsing as URL
+  try {
+    const url = new URL(trimmed);
+    const idParam = url.searchParams.get('id');
+    if (idParam && isValidProductId(idParam)) {
+      return idParam.trim().toUpperCase();
+    }
+  } catch {
+    // Not a valid URL, continue to regex match
+  }
+
+  // Search for pattern SP-YYYY-XXXX
+  const match = trimmed.match(/SP-\d{4}-[A-Z0-9_-]{3,12}/i);
+  if (match) {
+    return match[0].toUpperCase();
+  }
+
+  return null;
+}
+

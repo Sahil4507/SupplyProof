@@ -3,12 +3,13 @@ import { ShieldCheck, XCircle, AlertTriangle, Ban, AlertCircle } from 'lucide-re
 
 /**
  * Standard Status Badge for SupplyProof
- * Visualizes the 5 core verification states:
+ * Visualizes the core verification states:
  * - AUTHENTIC: Green (Registered & matching hash)
  * - UNREGISTERED: Red (No ledger record found)
  * - MISMATCH: Red (Data fingerprint differs from on-chain hash)
  * - REVOKED: Orange (Recalled or revoked by manufacturer)
  * - SUSPICIOUS: Amber (Duplicate claim or irregular history)
+ * - INVALID_FORMAT: Red (Malformed ID format)
  */
 export default function StatusBadge({ status = "AUTHENTIC", size = "md", showIcon = true }) {
   const normStatus = (status || "").toUpperCase();
@@ -51,6 +52,15 @@ export default function StatusBadge({ status = "AUTHENTIC", size = "md", showIco
       <span className={`inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 tracking-wide uppercase ${sizeClasses}`}>
         {showIcon && <XCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />}
         <span>Unregistered Product</span>
+      </span>
+    );
+  }
+
+  if (normStatus === "INVALID" || normStatus === "INVALID_FORMAT" || normStatus === "INVALID FORMAT") {
+    return (
+      <span className={`inline-flex items-center rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800 tracking-wide uppercase ${sizeClasses}`}>
+        {showIcon && <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />}
+        <span>Invalid ID Format</span>
       </span>
     );
   }

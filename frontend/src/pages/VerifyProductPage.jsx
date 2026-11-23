@@ -20,13 +20,15 @@ import {
   Factory,
   Tag,
   Check,
-  Copy
+  Copy,
+  Cpu
 } from 'lucide-react';
 import { getProductById } from '../data/mockProducts';
-import { generateProductFingerprint } from '../utils/crypto';
-import { verifyProductOnChain } from '../services/blockchain';
+import { generateProductFingerprint, isValidProductId, extractProductId } from '../utils/crypto';
+import { verifyProductOnChain, getProductOnChain } from '../services/blockchain';
 import { generateQRCodeSVG } from '../utils/qr';
 import StatusBadge from '../components/StatusBadge';
+import QRScannerModal from '../components/QRScannerModal';
 
 export default function VerifyProductPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -36,6 +38,7 @@ export default function VerifyProductPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // Tamper / Mismatch demonstration simulation
   const [tamperMode, setTamperMode] = useState(false);
@@ -57,62 +60,111 @@ export default function VerifyProductPage() {
     const cleanId = idToVerify.trim().toUpperCase();
     setIsVerifying(true);
 
-    // 1. Retrieve registered record from local/session registry
-    const registered = getProductById(cleanId);
-
-    if (!registered) {
-      // UNREGISTERED PRODUCT
+    // CASE E: Format validation (Malformed ID check)
+    if (!isValidProductId(cleanId)) {
       setVerificationResult({
-        verdict: 'UNREGISTERED',
+        verdict: 'INVALID_FORMAT',
         productId: cleanId,
-        title: 'UNREGISTERED PRODUCT',
-        subtitle: 'No registered product record was found for this Product ID on the blockchain ledger.',
-        explanation: 'This identifier does not exist in the official manufacturer registry. The product may be a counterfeit, unauthorized replica, or improperly labeled.',
-        registered: null
+        title: 'INVALID PRODUCT ID FORMAT',
+        subtitle: 'The entered identifier does not conform to the canonical SupplyProof schema.',
+        explanation: 'SupplyProof product identifiers follow the canonical schema: SP-YYYY-NNNN (e.g., SP-2026-0001). Please check the code printed on the physical certificate, product packaging, or QR passport.',
+        registered: null,
+        onChainInfo: null
       });
       setIsVerifying(false);
       return;
     }
 
-    // 2. Prepare test data (normal or tampered for viva demo)
+    // 1. Check local session/mock registry first
+    let registered = getProductById(cleanId);
+    let onChainData = null;
+
+    // 2. Query live smart contract if available
+    try {
+      const chainQuery = await getProductOnChain(cleanId);
+      if (chainQuery.success && chainQuery.product && chainQuery.product.productName) {
+        onChainData = chainQuery.product;
+        // If not in local mock, construct representation from on-chain product
+        if (!registered) {
+          registered = {
+            productId: onChainData.productId,
+            productName: onChainData.productName,
+            category: onChainData.category,
+            manufacturerName: onChainData.manufacturerName,
+            manufacturerId: 'ON-CHAIN-CERTIFIED',
+            batchNumber: onChainData.batchNumber,
+            manufacturingDate: new Date(onChainData.registeredAt).toISOString().substring(0, 10),
+            productHash: onChainData.fingerprintHash,
+            status: onChainData.status === 1 ? 'REVOKED' : 'AUTHENTIC',
+            revocationReason: onChainData.revocationReason,
+            registeredBy: onChainData.registeredBy,
+            isLiveOnChain: true
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("Smart contract query notice:", err);
+    }
+
+    // CASE D: Unregistered Product Check
+    if (!registered) {
+      setVerificationResult({
+        verdict: 'UNREGISTERED',
+        productId: cleanId,
+        title: 'UNREGISTERED PRODUCT',
+        subtitle: 'No registered product record was found for this Product ID on the blockchain ledger.',
+        explanation: 'This identifier does not exist in the official manufacturer registry or EVM smart contract. The product may be a counterfeit, unauthorized replica, or improperly labeled.',
+        registered: null,
+        onChainInfo: null
+      });
+      setIsVerifying(false);
+      return;
+    }
+
+    // 3. Prepare test data (normal or tampered for viva demo)
     const activeData = { ...registered };
     if (simulateTamper) {
       activeData[tamperedField] = tamperedValue;
     }
 
-    // 3. Recalculate deterministic SHA-256 fingerprint from the supplied product data
+    // 4. Recalculate deterministic SHA-256 fingerprint from the supplied product data
     const computed = await generateProductFingerprint(activeData);
-    const hashesMatch = computed.hashHex.toUpperCase() === registered.productHash.toUpperCase();
+    
+    // Check hash matching
+    const registeredHashNormalized = (registered.productHash || '').replace(/^0x/i, '').toUpperCase();
+    const computedHashNormalized = computed.hashHex.toUpperCase();
+    const hashesMatch = computedHashNormalized === registeredHashNormalized;
 
-    // 4. Check on-chain contract verification if reachable
-    let onChainInfo = null;
+    // 5. Query contract verifyProduct method
+    let onChainVerification = null;
     try {
       const chainRes = await verifyProductOnChain(cleanId, computed.bytes32Hash);
       if (chainRes.connected) {
-        onChainInfo = chainRes;
+        onChainVerification = chainRes;
       }
     } catch (e) {
-      // offline / mock provider fallback
+      // offline / mock fallback
     }
 
-    // 5. Determine definitive verdict
-    if (registered.status === 'REVOKED') {
-      // REVOKED PRODUCT
+    // 6. Determine definitive verdict
+    if (registered.status === 'REVOKED' || (onChainData && onChainData.status === 1)) {
+      // CASE B: Revoked Product
       setVerificationResult({
         verdict: 'REVOKED',
         productId: cleanId,
         title: 'PRODUCT REVOKED BY MANUFACTURER',
-        subtitle: 'This product identity has been officially revoked by the authorized manufacturer.',
+        subtitle: 'This product identity has been officially revoked or recalled by the authorized manufacturer.',
         explanation: registered.revocationReason || 'This product batch was marked defective or revoked to protect consumers from hazard or counterfeit circulation.',
         registered,
         activeData,
         computedHash: computed.hashHex,
         canonicalString: computed.canonicalString,
         hashesMatch,
-        onChainInfo
+        onChainInfo: onChainVerification,
+        onChainData
       });
     } else if (!hashesMatch) {
-      // RECORD MISMATCH
+      // CASE C: Record Mismatch (Tampered data)
       setVerificationResult({
         verdict: 'MISMATCH',
         productId: cleanId,
@@ -124,10 +176,11 @@ export default function VerifyProductPage() {
         computedHash: computed.hashHex,
         canonicalString: computed.canonicalString,
         hashesMatch: false,
-        onChainInfo
+        onChainInfo: onChainVerification,
+        onChainData
       });
     } else {
-      // AUTHENTIC RECORD
+      // CASE A: Authentic Record
       setVerificationResult({
         verdict: 'AUTHENTIC',
         productId: cleanId,
@@ -139,7 +192,8 @@ export default function VerifyProductPage() {
         computedHash: computed.hashHex,
         canonicalString: computed.canonicalString,
         hashesMatch: true,
-        onChainInfo
+        onChainInfo: onChainVerification,
+        onChainData
       });
     }
 
@@ -169,6 +223,11 @@ export default function VerifyProductPage() {
     }
   };
 
+  const handleScanSuccess = (scannedId) => {
+    setInputProductId(scannedId);
+    setSearchParams({ id: scannedId });
+  };
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
       
@@ -186,7 +245,7 @@ export default function VerifyProductPage() {
         </p>
       </div>
 
-      {/* Main Search & Verification Input */}
+      {/* Main Search & Verification Input with QR Scanner Button */}
       <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-2.5">
           <div className="relative flex-1">
@@ -195,19 +254,40 @@ export default function VerifyProductPage() {
               value={inputProductId}
               onChange={(e) => setInputProductId(e.target.value)}
               placeholder="Enter Product ID (e.g. SP-2026-0001)"
-              className="w-full px-4 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {/* Quick QR Scanner Trigger Button inside Input */}
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition-colors"
+              title="Open QR Scanner"
+            >
+              <Camera className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            type="submit"
-            disabled={isVerifying}
-            className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-extrabold text-sm shadow-xs transition-all shrink-0 active:scale-95 flex items-center justify-center gap-2"
-          >
-            {isVerifying ? <span>Verifying...</span> : <span>Verify Product</span>}
-          </button>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <QrCode className="w-4 h-4 text-blue-600" />
+              <span>Scan QR</span>
+            </button>
+
+            <button
+              type="submit"
+              disabled={isVerifying}
+              className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-extrabold text-sm shadow-xs transition-all shrink-0 active:scale-95 flex items-center justify-center gap-2"
+            >
+              {isVerifying ? <span>Verifying...</span> : <span>Verify Product</span>}
+            </button>
+          </div>
         </form>
 
-        {/* Viva Test Scenarios (1-Click Buttons) */}
+        {/* 5 VIVA TEST SCENARIOS (1-Click Buttons) */}
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
             1-Click Academic Demonstration Scenarios:
@@ -219,7 +299,7 @@ export default function VerifyProductPage() {
               className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 font-semibold transition-colors flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Authentic (SP-2026-0001)</span>
+              <span>Case A: Authentic (SP-2026-0001)</span>
             </button>
 
             <button
@@ -228,7 +308,7 @@ export default function VerifyProductPage() {
               className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 font-semibold transition-colors flex items-center gap-1.5"
             >
               <Ban className="w-3.5 h-3.5" />
-              <span>Revoked Batch (SP-2026-0004)</span>
+              <span>Case B: Revoked Batch (SP-2026-0004)</span>
             </button>
 
             <button
@@ -237,16 +317,25 @@ export default function VerifyProductPage() {
               className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 font-semibold transition-colors flex items-center gap-1.5"
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Tampered Data (Mismatch Test)</span>
+              <span>Case C: Tampered Fingerprint Mismatch</span>
             </button>
 
             <button
               type="button"
-              onClick={() => handleSelectScenario('SP-9999-9999', false)}
+              onClick={() => handleSelectScenario('SP-2026-9999', false)}
               className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 font-semibold transition-colors flex items-center gap-1.5"
             >
               <XCircle className="w-3.5 h-3.5" />
-              <span>Unregistered ID (Counterfeit Test)</span>
+              <span>Case D: Unregistered Product ID</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectScenario('INVALID-ID-MALFORMED', false)}
+              className="px-3 py-1.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>Case E: Invalid Format (Schema Check)</span>
             </button>
           </div>
         </div>
@@ -273,6 +362,7 @@ export default function VerifyProductPage() {
                 {verificationResult.verdict === 'REVOKED' && <Ban className="w-7 h-7 stroke-[2.5]" />}
                 {verificationResult.verdict === 'MISMATCH' && <AlertTriangle className="w-7 h-7 stroke-[2.5]" />}
                 {verificationResult.verdict === 'UNREGISTERED' && <XCircle className="w-7 h-7 stroke-[2.5]" />}
+                {verificationResult.verdict === 'INVALID_FORMAT' && <AlertCircle className="w-7 h-7 stroke-[2.5]" />}
               </div>
 
               <div className="space-y-1.5 flex-1">
@@ -288,6 +378,14 @@ export default function VerifyProductPage() {
                 <p className="text-xs opacity-80 pt-1 leading-relaxed">
                   {verificationResult.explanation}
                 </p>
+
+                {/* On-Chain Confirmation Flag */}
+                {verificationResult.onChainData && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[11px] font-mono font-bold mt-2">
+                    <Cpu className="w-3.5 h-3.5" />
+                    <span>Direct Hardhat EVM Contract Verified (SupplyProof.sol)</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -345,8 +443,8 @@ export default function VerifyProductPage() {
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                     verificationResult.hashesMatch 
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' 
-                      : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' 
+                       : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
                   }`}>
                     {verificationResult.hashesMatch ? 'Exact Match (100%)' : 'Digest Mismatch'}
                   </span>
@@ -383,7 +481,7 @@ export default function VerifyProductPage() {
                 </div>
 
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  The client browser recalculates the SHA-256 digest from canonical parameters. Matching hashes mathematically proves data authenticity.
+                  The client recalculates the SHA-256 digest from canonical parameters. Matching hashes mathematically proves data authenticity.
                 </p>
               </div>
 
@@ -438,6 +536,13 @@ export default function VerifyProductPage() {
 
         </div>
       )}
+
+      {/* QR Scanner Modal */}
+      <QRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={handleScanSuccess}
+      />
 
     </div>
   );
