@@ -1,3 +1,8 @@
+/**
+ * Formatting and Validation Utilities for SupplyProof
+ * Team: HashGuard
+ */
+
 export function truncateAddress(address, start = 6, end = 4) {
   if (!address) return '';
   if (address.length <= start + end) return address;
@@ -10,15 +15,11 @@ export function truncateHash(hash, start = 8, end = 6) {
   return `${hash.slice(0, start)}...${hash.slice(-end)}`;
 }
 
-export function formatOdometer(value, unit = 'km') {
-  if (value === undefined || value === null) return '0 km';
-  return `${Number(value).toLocaleString()} ${unit}`;
-}
-
 export function formatDate(dateString) {
   if (!dateString) return '';
   try {
     const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
     return d.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -29,9 +30,12 @@ export function formatDate(dateString) {
   }
 }
 
-export function isValidBikeChainId(id) {
+/**
+ * Validates canonical SupplyProof Product ID format.
+ * Format: SP-YYYY-NNNN (e.g. SP-2026-0001)
+ */
+export function isValidProductId(id) {
   if (!id) return false;
-  // Format: BC-YYYY-XX-NNNN
-  const regex = /^BC-\d{4}-[A-Z]{2,4}-\d{4}$/i;
+  const regex = /^SP-\d{4}-\d{4}$/i;
   return regex.test(id.trim());
 }

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 
 export function useTheme() {
   const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'dark';
-    const saved = localStorage.getItem('bikechain_theme');
+    if (typeof window === 'undefined') return 'light';
+    const saved = localStorage.getItem('supplyproof_theme') || localStorage.getItem('bikechain_theme');
     if (saved) return saved;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
@@ -12,10 +12,10 @@ export function useTheme() {
     const root = document.documentElement;
     if (theme === 'dark') {
       root.classList.add('dark');
-      localStorage.setItem('bikechain_theme', 'dark');
+      localStorage.setItem('supplyproof_theme', 'dark');
     } else {
       root.classList.remove('dark');
-      localStorage.setItem('bikechain_theme', 'light');
+      localStorage.setItem('supplyproof_theme', 'light');
     }
   }, [theme]);
 
@@ -23,7 +23,7 @@ export function useTheme() {
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (e) => {
-      const saved = localStorage.getItem('bikechain_theme');
+      const saved = localStorage.getItem('supplyproof_theme');
       if (!saved) {
         setTheme(e.matches ? 'dark' : 'light');
       }

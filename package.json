@@ -1,8 +1,8 @@
 {
-  "name": "bikechain",
+  "name": "supplyproof",
   "version": "1.0.0",
   "private": true,
-  "description": "Blockchain-Based Motorcycle History & Verification Platform",
+  "description": "Blockchain-Based Product Authenticity & Supply Chain Tracking by Team HashGuard",
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
@@ -14,11 +14,13 @@
   "keywords": [
     "blockchain",
     "solidity",
-    "motorcycle",
-    "verification",
+    "supplyproof",
+    "product-authenticity",
+    "counterfeit-detection",
+    "hashguard",
     "ethereum",
     "web3"
   ],
-  "author": "BikeChain Contributors",
+  "author": "Team HashGuard",
   "license": "MIT"
 }

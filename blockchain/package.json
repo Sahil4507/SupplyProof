@@ -1,7 +1,7 @@
 {
-  "name": "blockchain",
+  "name": "supplyproof-blockchain",
   "version": "1.0.0",
-  "description": "BikeChain Solidity Smart Contracts and Hardhat Test Suite",
+  "description": "SupplyProof Solidity Smart Contracts and Hardhat Test Suite by Team HashGuard",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -14,9 +14,11 @@
     "blockchain",
     "solidity",
     "hardhat",
-    "bikechain"
+    "supplyproof",
+    "product-authenticity",
+    "hashguard"
   ],
-  "author": "Sahil4507",
+  "author": "Team HashGuard",
   "license": "MIT",
   "dependencies": {
     "ethers": "^6.16.0"
