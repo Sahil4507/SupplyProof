@@ -32,7 +32,7 @@ export default function HomePage() {
   const sampleQuickIds = [
     { id: 'SP-2026-0001', label: 'Authentic SmartWatch' },
     { id: 'SP-2026-0004', label: 'Revoked Batch Demo' },
-    { id: 'SP-9999-9999', label: 'Unregistered Demo' },
+    { id: 'SP-2026-9999', label: 'Unregistered Demo' },
   ];
 
   return (

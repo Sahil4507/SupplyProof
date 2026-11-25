@@ -7,6 +7,7 @@ import RegisterProductPage from './pages/RegisterProductPage';
 import VerifyProductPage from './pages/VerifyProductPage';
 import ProductsPage from './pages/ProductsPage';
 import ProductDetailsPage from './pages/ProductDetailsPage';
+import BatchRecallPage from './pages/BatchRecallPage';
 import AboutPage from './pages/AboutPage';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="verify" element={<VerifyProductPage />} />
             <Route path="products" element={<ProductsPage />} />
             <Route path="product/:id" element={<ProductDetailsPage />} />
+            <Route path="batch-recall" element={<BatchRecallPage />} />
             <Route path="about" element={<AboutPage />} />
             
             {/* Legacy redirects for old bookmarks / routes */}

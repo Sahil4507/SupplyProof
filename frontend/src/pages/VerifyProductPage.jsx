@@ -401,6 +401,146 @@ export default function VerifyProductPage() {
             </div>
           </div>
 
+          {/* COMPACT VERIFICATION BREAKDOWN (PART 1) */}
+          {(() => {
+            let recordFoundStatus = 'PASSED';
+            let fingerprintMatchStatus = 'PASSED';
+            let recordActiveStatus = 'PASSED';
+
+            if (verificationResult.verdict === 'INVALID_FORMAT') {
+              recordFoundStatus = 'SKIPPED';
+              fingerprintMatchStatus = 'SKIPPED';
+              recordActiveStatus = 'SKIPPED';
+            } else if (verificationResult.verdict === 'UNREGISTERED') {
+              recordFoundStatus = 'FAILED';
+              fingerprintMatchStatus = 'SKIPPED';
+              recordActiveStatus = 'SKIPPED';
+            } else if (verificationResult.verdict === 'REVOKED') {
+              recordFoundStatus = 'PASSED';
+              fingerprintMatchStatus = 'PASSED';
+              recordActiveStatus = 'REVOKED';
+            } else if (verificationResult.verdict === 'MISMATCH') {
+              recordFoundStatus = 'PASSED';
+              fingerprintMatchStatus = 'FAILED';
+              recordActiveStatus = 'FLAGGED';
+            }
+
+            return (
+              <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                      Verification Breakdown
+                    </h3>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    3 Security Checks
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Check 1: Record Found */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    recordFoundStatus === 'PASSED'
+                      ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60'
+                      : recordFoundStatus === 'FAILED'
+                      ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60'
+                      : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">1. Record Found</span>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                        recordFoundStatus === 'PASSED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' :
+                        recordFoundStatus === 'FAILED' ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300' :
+                        'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {recordFoundStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                      {recordFoundStatus === 'PASSED' ? 'Registered on Ledger' :
+                       recordFoundStatus === 'FAILED' ? 'No Ledger Record' : 'Lookup Skipped'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {recordFoundStatus === 'PASSED' ? 'Identity anchored in smart contract' :
+                       recordFoundStatus === 'FAILED' ? 'Product ID not minted by authorized manufacturer' : 'Failed canonical schema validation'}
+                    </p>
+                  </div>
+
+                  {/* Check 2: Fingerprint Match */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    fingerprintMatchStatus === 'PASSED'
+                      ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60'
+                      : fingerprintMatchStatus === 'FAILED'
+                      ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60'
+                      : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">2. Fingerprint Match</span>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                        fingerprintMatchStatus === 'PASSED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' :
+                        fingerprintMatchStatus === 'FAILED' ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300' :
+                        'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {fingerprintMatchStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                      {fingerprintMatchStatus === 'PASSED' ? 'SHA-256 Digest Matched' :
+                       fingerprintMatchStatus === 'FAILED' ? 'Cryptographic Mismatch' : 'N/A (No Record)'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {fingerprintMatchStatus === 'PASSED' ? 'Submitted parameters match anchored hash' :
+                       fingerprintMatchStatus === 'FAILED' ? 'Submitted data differs from mint record' : 'Requires registered record to evaluate'}
+                    </p>
+                  </div>
+
+                  {/* Check 3: Record Active */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    recordActiveStatus === 'PASSED'
+                      ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60'
+                      : recordActiveStatus === 'REVOKED'
+                      ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60'
+                      : recordActiveStatus === 'FLAGGED'
+                      ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60'
+                      : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+                  }`}>
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">3. Record Active</span>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase ${
+                        recordActiveStatus === 'PASSED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300' :
+                        recordActiveStatus === 'REVOKED' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300' :
+                        recordActiveStatus === 'FLAGGED' ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300' :
+                        'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {recordActiveStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white">
+                      {recordActiveStatus === 'PASSED' ? 'Active & Valid' :
+                       recordActiveStatus === 'REVOKED' ? 'Officially Revoked' :
+                       recordActiveStatus === 'FLAGGED' ? 'Integrity Flagged' : 'N/A'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {recordActiveStatus === 'PASSED' ? 'Untampered, no recall issued' :
+                       recordActiveStatus === 'REVOKED' ? 'Revocation issued by manufacturer' :
+                       recordActiveStatus === 'FLAGGED' ? 'Integrity mismatch detected' : 'Cannot evaluate without ledger entry'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Academic Verification Disclaimer */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-start gap-2 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <Info className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <span>
+                    Digital verification confirms the stored record and submitted data. It does not independently prove the physical product's authenticity.
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* CASE B SPECIFIC: REVOCATION CALLOUT */}
           {verificationResult.verdict === 'REVOKED' && (
             <div className="p-5 sm:p-6 rounded-3xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-3">

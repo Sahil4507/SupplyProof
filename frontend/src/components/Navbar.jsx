@@ -22,6 +22,7 @@ export default function Navbar() {
     { name: 'Register', path: '/register' },
     { name: 'Verify', path: '/verify' },
     { name: 'Products', path: '/products' },
+    { name: 'Batch Recall', path: '/batch-recall' },
     { name: 'About', path: '/about' },
   ];
 
