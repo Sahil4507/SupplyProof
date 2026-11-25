@@ -68,6 +68,13 @@ contract SupplyProof is AccessControl {
         uint256 timestamp
     );
 
+    event ProductReactivated(
+        string indexed productId,
+        address indexed reactivatedBy,
+        string reason,
+        uint256 timestamp
+    );
+
     event CustodyTransferred(
         string indexed productId,
         address indexed from,
@@ -204,6 +211,32 @@ contract SupplyProof is AccessControl {
         }));
 
         emit ProductRevoked(productId, msg.sender, reason, block.timestamp);
+    }
+
+    /**
+     * @notice Reactivate / unrevoke a previously revoked product after inspection, recall clearance, or defect resolution.
+     * @dev Only the registering manufacturer or admin can reactivate.
+     */
+    function reactivateProduct(string calldata productId, string calldata reason) external {
+        require(products[productId].exists, "SupplyProof: Product not found");
+        Product storage prod = products[productId];
+        
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, msg.sender) || (prod.registeredBy == msg.sender && hasRole(MANUFACTURER_ROLE, msg.sender)),
+            "SupplyProof: Unauthorized to reactivate product"
+        );
+        require(prod.status == ProductStatus.Revoked, "SupplyProof: Product is not revoked");
+
+        prod.status = ProductStatus.Active;
+
+        productHistory[productId].push(ProductEvent({
+            eventType: "PRODUCT_REACTIVATED",
+            actor: msg.sender,
+            timestamp: block.timestamp,
+            details: bytes(reason).length > 0 ? reason : "Reactivated by authorized manufacturer"
+        }));
+
+        emit ProductReactivated(productId, msg.sender, reason, block.timestamp);
     }
 
     /**

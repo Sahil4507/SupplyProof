@@ -19,11 +19,12 @@ import {
   Star,
   Layers,
   Info,
-  Cpu
+  Cpu,
+  RotateCcw
 } from 'lucide-react';
-import { getProductById, revokeProductRecord } from '../data/mockProducts';
+import { getProductById, revokeProductRecord, reactivateProductRecord } from '../data/mockProducts';
 import { truncateHash, truncateAddress } from '../utils/formatters';
-import { isWalletAvailable, revokeProductOnChain, getProductOnChain } from '../services/blockchain';
+import { isWalletAvailable, revokeProductOnChain, reactivateProductOnChain, getProductOnChain } from '../services/blockchain';
 import StatusBadge from '../components/StatusBadge';
 import ProductQRCode from '../components/ProductQRCode';
 
@@ -41,6 +42,11 @@ export default function ProductDetailsPage() {
   const [showRevokeModal, setShowRevokeModal] = useState(false);
   const [revokeReason, setRevokeReason] = useState('');
   const [revoking, setRevoking] = useState(false);
+
+  // Reactivation / Unrevoke modal state
+  const [showUnrevokeModal, setShowUnrevokeModal] = useState(false);
+  const [unrevokeReason, setUnrevokeReason] = useState('');
+  const [unrevoking, setUnrevoking] = useState(false);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -146,13 +152,38 @@ export default function ProductDetailsPage() {
       }
 
       revokeProductRecord(product.productId, revokeReason);
-      setProduct(getProductById(product.productId));
+      setProduct({ ...getProductById(product.productId) });
       setShowRevokeModal(false);
       setRevokeReason('');
     } catch (err) {
       alert("Revocation failed: " + (err.message || 'Unknown error'));
     } finally {
       setRevoking(false);
+    }
+  };
+
+  const handleUnrevoke = async (e) => {
+    e.preventDefault();
+    if (!unrevokeReason.trim()) return;
+    setUnrevoking(true);
+
+    try {
+      if (isWalletAvailable()) {
+        try {
+          await reactivateProductOnChain(product.productId, unrevokeReason);
+        } catch (chainErr) {
+          console.warn("On-chain reactivation fallback to demo store:", chainErr);
+        }
+      }
+
+      reactivateProductRecord(product.productId, unrevokeReason);
+      setProduct({ ...getProductById(product.productId) });
+      setShowUnrevokeModal(false);
+      setUnrevokeReason('');
+    } catch (err) {
+      alert("Reactivation failed: " + (err.message || 'Unknown error'));
+    } finally {
+      setUnrevoking(false);
     }
   };
 
@@ -313,9 +344,9 @@ export default function ProductDetailsPage() {
           </div>
         )}
 
-        {/* Revoke Action Button (Only if Active) */}
-        {product.status !== 'REVOKED' && (
-          <div className="pt-2 flex justify-end">
+        {/* Revoke / Unrevoke Action Button (Toggles in exact same location) */}
+        <div className="pt-2 flex justify-end">
+          {product.status !== 'REVOKED' ? (
             <button
               type="button"
               onClick={() => setShowRevokeModal(true)}
@@ -324,8 +355,17 @@ export default function ProductDetailsPage() {
               <Ban className="w-3.5 h-3.5" />
               <span>Revoke Product (Manufacturer Action)</span>
             </button>
-          </div>
-        )}
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowUnrevokeModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs font-bold transition-colors shadow-xs"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Unrevoke Product (Manufacturer Action)</span>
+            </button>
+          )}
+        </div>
 
       </section>
 
@@ -450,6 +490,7 @@ export default function ProductDetailsPage() {
             <div key={ev.id || idx} className="relative">
               <div className={`absolute -left-[31px] sm:-left-[39px] top-1.5 w-3.5 h-3.5 rounded-full ring-4 ring-white dark:ring-slate-900 ${
                 ev.eventType === 'PRODUCT_REVOKED' ? 'bg-amber-500' : 
+                ev.eventType === 'PRODUCT_REACTIVATED' ? 'bg-emerald-500' :
                 ev.eventType === 'INSPECTION_ADVISORY' ? 'bg-amber-400' : 'bg-blue-600'
               }`} />
 
@@ -489,7 +530,7 @@ export default function ProductDetailsPage() {
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              Revoking marks this product identity as <strong>REVOKED</strong> on the blockchain. Consumers scanning this unit will receive an alert. This action cannot be reversed.
+              Revoking marks this product identity as <strong>REVOKED</strong> on the blockchain. Consumers scanning this unit will receive an alert. Authorized manufacturers can later unrevoke this record if inspection or testing resolves the issue.
             </p>
 
             <form onSubmit={handleRevoke} className="space-y-4">
@@ -521,6 +562,55 @@ export default function ProductDetailsPage() {
                   className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
                 >
                   {revoking ? 'Revoking...' : 'Confirm Revocation'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Unrevoke / Reactivate Modal */}
+      {showUnrevokeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fadeIn">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <RotateCcw className="w-5 h-5" />
+              <h3 className="font-bold text-base text-slate-900 dark:text-white">Unrevoke / Reactivate Product</h3>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Reactivating restores this product identity to <strong>ACTIVE</strong> status on the blockchain ledger. Product verifications will report this unit as Authentic again. Complete event history is preserved on-chain.
+            </p>
+
+            <form onSubmit={handleUnrevoke} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Reactivation Reason / Resolution Notes *
+                </label>
+                <textarea
+                  rows={3}
+                  value={unrevokeReason}
+                  onChange={(e) => setUnrevokeReason(e.target.value)}
+                  placeholder="e.g. Batch inspection cleared, safety testing passed, firmware patch verified, or false claim resolved..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUnrevokeModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={unrevoking}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                >
+                  {unrevoking ? 'Reactivating...' : 'Confirm Unrevoke'}
                 </button>
               </div>
             </form>

@@ -333,3 +333,33 @@ export async function revokeProductOnChain(productId, reason) {
     throw new Error(parseBlockchainError(err));
   }
 }
+
+/**
+ * Reactivate / unrevoke a product directly on-chain.
+ */
+export async function reactivateProductOnChain(productId, reason) {
+  if (!isWalletAvailable()) {
+    throw new Error("MetaMask is required to sign reactivation transaction.");
+  }
+
+  const artifact = await getContractArtifact();
+  if (!artifact) {
+    throw new Error("SupplyProof contract artifact missing.");
+  }
+
+  try {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(artifact.address || DEFAULT_CONTRACT_ADDRESS, artifact.abi, signer);
+
+    const tx = await contract.reactivateProduct(productId, reason);
+    const receipt = await tx.wait();
+    return {
+      success: true,
+      txHash: receipt.hash,
+      blockNumber: receipt.blockNumber
+    };
+  } catch (err) {
+    throw new Error(parseBlockchainError(err));
+  }
+}

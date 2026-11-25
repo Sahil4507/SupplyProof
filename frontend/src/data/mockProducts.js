@@ -709,6 +709,33 @@ export function revokeProductRecord(productId, reason) {
   return true;
 }
 
+export function reactivateProductRecord(productId, reason) {
+  const prod = getProductById(productId);
+  if (!prod) return false;
+
+  prod.status = "AUTHENTIC";
+  prod.revocationReason = null;
+  prod.revokedAt = null;
+  prod.recallInfo = null;
+  const reactivatedAt = new Date().toISOString().replace('T', ' ').substring(0, 16) + " UTC";
+
+  prod.events = [
+    {
+      id: "ev-reactivate-" + Date.now(),
+      eventType: "PRODUCT_REACTIVATED",
+      title: "PRODUCT REACTIVATED BY MANUFACTURER",
+      date: reactivatedAt,
+      actor: prod.manufacturerName + " (Authorized Manufacturer)",
+      actorAddress: prod.registeredBy,
+      details: reason || "Product identity restored to Active status after inspection resolution.",
+      txHash: "0x" + Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('')
+    },
+    ...prod.events
+  ];
+
+  return true;
+}
+
 /**
  * Get distinct production batches for the Batch Recall Simulation Demo.
  * @returns {Array<{ batchNumber: string, manufacturerName: string, category: string, count: number, isAlreadyRecalled: boolean, reason?: string }>}
